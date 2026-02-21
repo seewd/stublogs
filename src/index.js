@@ -35,6 +35,7 @@ const COMMENT_RATE_WINDOW_MS = 60 * 1000;
 const COMMENT_RATE_MAX_ATTEMPTS = 6;
 const commentAttempts = new Map();
 let commentsTableReadyPromise = null;
+let postsColumnsReadyPromise = null;
 
 export default {
   async fetch(request, env, ctx) {
@@ -484,7 +485,8 @@ async function handleApi(request, env, ctx, context) {
         "你的第一篇文章，開始編輯它吧。",
         1,
         now,
-        now
+        now,
+        { excludeFromCampusFeed: true }
       );
 
       const notifyTask = notifyTelegramNewSite(env, {
@@ -1372,6 +1374,10 @@ async function listCommunitySites(env, currentSlug, limit = 12) {
 
 async function listCampusFeed(env, excludeSiteId = null, limit = 24) {
   const safeLimit = Math.min(Math.max(Number(limit) || 24, 1), 120);
+  const hasExcludeColumn = await hasPostsColumn(env, "exclude_from_campus_feed");
+  const visibilityClause = hasExcludeColumn
+    ? "p.published = 1 AND p.exclude_from_campus_feed = 0"
+    : "p.published = 1 AND NOT (p.post_slug = 'hello-world' AND p.title = 'Hello World')";
   const sql = excludeSiteId
     ? `SELECT
         p.post_slug AS postSlug,
@@ -1382,7 +1388,7 @@ async function listCampusFeed(env, excludeSiteId = null, limit = 24) {
         s.display_name AS siteName
       FROM posts p
       INNER JOIN sites s ON p.site_id = s.id
-      WHERE p.published = 1 AND p.site_id != ?
+      WHERE ${visibilityClause} AND p.site_id != ?
       ORDER BY p.updated_at DESC
       LIMIT ?`
     : `SELECT
@@ -1394,7 +1400,7 @@ async function listCampusFeed(env, excludeSiteId = null, limit = 24) {
         s.display_name AS siteName
       FROM posts p
       INNER JOIN sites s ON p.site_id = s.id
-      WHERE p.published = 1
+      WHERE ${visibilityClause}
       ORDER BY p.updated_at DESC
       LIMIT ?`;
 
@@ -1520,6 +1526,34 @@ async function ensureCommentsTable(env) {
     });
   }
   return commentsTableReadyPromise;
+}
+
+async function getPostsColumns(env) {
+  if (!postsColumnsReadyPromise) {
+    postsColumnsReadyPromise = (async () => {
+      const result = await env.DB.prepare("PRAGMA table_info(posts)").all();
+      const rows = result.results || [];
+      return new Set(
+        rows
+          .map((item) => String(item.name || "").toLowerCase())
+          .filter(Boolean)
+      );
+    })().catch((error) => {
+      postsColumnsReadyPromise = null;
+      throw error;
+    });
+  }
+  return postsColumnsReadyPromise;
+}
+
+async function hasPostsColumn(env, columnName) {
+  try {
+    const columns = await getPostsColumns(env);
+    return columns.has(String(columnName || "").toLowerCase());
+  } catch (error) {
+    console.error("Failed to inspect posts columns", error);
+    return false;
+  }
 }
 
 async function listPostComments(env, siteId, postSlug, page = 1, pageSize = COMMENTS_PAGE_SIZE) {
@@ -1695,9 +1729,46 @@ async function upsertPostMeta(
   description,
   published,
   updatedAt,
-  createdAt
+  createdAt,
+  options = {}
 ) {
   const created = createdAt || updatedAt;
+  const excludeFromCampusFeed = options.excludeFromCampusFeed ? 1 : 0;
+  const hasExcludeColumn = await hasPostsColumn(env, "exclude_from_campus_feed");
+
+  if (hasExcludeColumn) {
+    return env.DB.prepare(
+      `INSERT INTO posts (
+        site_id,
+        post_slug,
+        title,
+        description,
+        published,
+        exclude_from_campus_feed,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(site_id, post_slug)
+      DO UPDATE SET
+        title = excluded.title,
+        description = excluded.description,
+        published = excluded.published,
+        exclude_from_campus_feed = excluded.exclude_from_campus_feed,
+        updated_at = excluded.updated_at`
+    )
+      .bind(
+        siteId,
+        postSlug,
+        title,
+        description,
+        published,
+        excludeFromCampusFeed,
+        created,
+        updatedAt
+      )
+      .run();
+  }
 
   return env.DB.prepare(
     `INSERT INTO posts (site_id, post_slug, title, description, published, created_at, updated_at)
@@ -1707,7 +1778,7 @@ async function upsertPostMeta(
        title = excluded.title,
        description = excluded.description,
        published = excluded.published,
-       updated_at = excluded.updated_at`
+      updated_at = excluded.updated_at`
   )
     .bind(siteId, postSlug, title, description, published, created, updatedAt)
     .run();

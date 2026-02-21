@@ -11,6 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="https://img.bdfz.net/20250503004.webp" type="image/jpeg" />
   </head>
   <body>
     <div class="aurora aurora-left"></div>
@@ -18,12 +19,32 @@
 
     <main class="panel">
       <header class="hero">
+        <div class="hero-tools">
+          <label for="theme-picker">頁面色系</label>
+          <select id="theme-picker">
+            <option value="default">預設</option>
+            <option value="paper">紙白</option>
+            <option value="forest">森林</option>
+            <option value="ocean">海藍</option>
+            <option value="amber">琥珀</option>
+            <option value="graphite">石墨</option>
+          </select>
+        </div>
         <p class="tag">$ stublogs <span class="cursor-blink"></span></p>
         <h1>所謂語文，無非你寫。</h1>
         <p class="intro">
           註冊後啟用 <code>xxx.bdfz.net</code>，進入編輯器發布文章。
           同學站點互見，全校內容探索。
         </p>
+        <div class="intro-guide">
+          <p class="guide-title">使用說明</p>
+          <ol>
+            <li>填寫邀請碼並註冊，選擇專屬子域名。</li>
+            <li>建立成功後自動跳轉至 <code>/admin</code>，開始寫作。</li>
+            <li>文章網址格式：<code>https://xxx.bdfz.net/文章-slug</code></li>
+            <li>後台可編輯樣式、管理連結，也能一鍵匯出資料。</li>
+          </ol>
+        </div>
       </header>
 
       <section class="grid">
@@ -59,10 +80,14 @@
           </div>
 
           <h3>最新加入</h3>
-          <ul id="latest-sites" class="site-list compact"></ul>
+          <div class="scroll-wrap station-scroll">
+            <ul id="latest-sites" class="site-list compact"></ul>
+          </div>
 
           <h3>全校最新文章</h3>
-          <ul id="global-feed" class="site-list compact"></ul>
+          <div class="scroll-wrap station-scroll">
+            <ul id="global-feed" class="site-list compact"></ul>
+          </div>
         </article>
       </section>
 
@@ -71,22 +96,10 @@
           <h2>// 全部站點</h2>
           <input id="site-filter" placeholder="搜尋 slug 或名稱…" />
         </div>
-        <ul id="all-sites" class="site-list"></ul>
-      </section>
-
-      <section class="card guide-card" tabindex="0">
-        <h2>使用說明</h2>
-        <div class="guide-steps">
-          <ol>
-            <li>填寫邀請碼並註冊，選擇專屬子域名。</li>
-            <li>建立成功後自動跳轉至 <code>/admin</code>，開始寫作。</li>
-            <li>文章網址格式：<code>https://xxx.bdfz.net/文章-slug</code></li>
-            <li>後台可編輯樣式、管理連結，也能一鍵匯出資料。</li>
-          </ol>
+        <div class="scroll-wrap all-sites-scroll">
+          <ul id="all-sites" class="site-list"></ul>
         </div>
       </section>
-
-      <p class="tagline">所謂語文，無非 <span>你</span> 寫下。</p>
     </main>
 
     <script src="/app.js" defer></script>

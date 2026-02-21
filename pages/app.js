@@ -12,10 +12,13 @@ const latestSitesEl = document.getElementById("latest-sites");
 const allSitesEl = document.getElementById("all-sites");
 const globalFeedEl = document.getElementById("global-feed");
 const siteFilterInput = document.getElementById("site-filter");
+const themePicker = document.getElementById("theme-picker");
 
 let timer = null;
 let pollTimer = null;
 let allSites = [];
+const THEME_KEY = "stublogs-home-theme";
+const ALLOWED_THEMES = new Set(["default", "paper", "forest", "ocean", "amber", "graphite"]);
 
 /* ── Helpers ── */
 
@@ -58,6 +61,42 @@ async function fetchJson(path, options) {
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || "Request failed");
   return payload;
+}
+
+/* ── Theme picker ── */
+
+function normalizeTheme(value) {
+  const theme = String(value || "").trim().toLowerCase();
+  return ALLOWED_THEMES.has(theme) ? theme : "default";
+}
+
+function applyTheme(value) {
+  const theme = normalizeTheme(value);
+  document.body.setAttribute("data-theme", theme);
+  if (themePicker) {
+    themePicker.value = theme;
+  }
+}
+
+function initTheme() {
+  let saved = "default";
+  try {
+    saved = normalizeTheme(localStorage.getItem(THEME_KEY) || "");
+  } catch {
+    saved = "default";
+  }
+  applyTheme(saved);
+
+  if (!themePicker) return;
+  themePicker.addEventListener("change", () => {
+    const theme = normalizeTheme(themePicker.value);
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // ignore storage errors
+    }
+    applyTheme(theme);
+  });
 }
 
 /* ── Password strength ── */
@@ -223,6 +262,7 @@ async function refreshAll() {
 }
 
 refreshAll();
+initTheme();
 pollTimer = setInterval(refreshAll, POLL_MS);
 
 window.addEventListener("beforeunload", () => {
