@@ -363,9 +363,11 @@ async function handleApi(request, env, ctx, context) {
             description,
             heroTitle: "",
             heroSubtitle: "",
-            accentColor: "#7b5034",
-            footerNote: "在這裡，把語文寫成你自己。",
+            colorTheme: "default",
+            footerNote: "",
             headerLinks: [],
+            hideCommunitySites: false,
+            hideCampusFeed: false,
             createdAt: now,
             updatedAt: now,
             exportVersion: SITE_CONFIG_VERSION,
@@ -486,15 +488,36 @@ async function handleApi(request, env, ctx, context) {
     }
 
     const body = await readJson(request);
+    const currentConfig = await getSiteConfig(env, site);
     const now = new Date().toISOString();
 
-    const displayName = sanitizeName(body.displayName || site.displayName) || site.slug;
-    const description = sanitizeDescription(body.description || "");
-    const heroTitle = sanitizeTitle(body.heroTitle || "");
-    const heroSubtitle = sanitizeDescription(body.heroSubtitle || "");
-    const accentColor = sanitizeHexColor(body.accentColor || "#7b5034");
-    const footerNote = sanitizeDescription(body.footerNote || "");
-    const headerLinks = sanitizeHeaderLinks(body.headerLinks);
+    const displayName = sanitizeName(
+      body.displayName ?? currentConfig.displayName ?? site.displayName
+    ) || site.slug;
+    const description = sanitizeDescription(
+      body.description ?? currentConfig.description ?? ""
+    );
+    const heroTitle = sanitizeTitle(
+      body.heroTitle ?? currentConfig.heroTitle ?? ""
+    );
+    const heroSubtitle = sanitizeDescription(
+      body.heroSubtitle ?? currentConfig.heroSubtitle ?? ""
+    );
+    const colorTheme = sanitizeColorTheme(
+      body.colorTheme ?? currentConfig.colorTheme ?? "default"
+    );
+    const footerNote = sanitizeDescription(
+      body.footerNote ?? currentConfig.footerNote ?? ""
+    );
+    const headerLinks = Array.isArray(body.headerLinks)
+      ? sanitizeHeaderLinks(body.headerLinks)
+      : sanitizeHeaderLinks(currentConfig.headerLinks || []);
+    const hideCommunitySites = body.hideCommunitySites === undefined
+      ? Boolean(currentConfig.hideCommunitySites)
+      : Boolean(body.hideCommunitySites);
+    const hideCampusFeed = body.hideCampusFeed === undefined
+      ? Boolean(currentConfig.hideCampusFeed)
+      : Boolean(body.hideCampusFeed);
 
     const nextConfig = normalizeSiteConfig(
       {
@@ -503,9 +526,11 @@ async function handleApi(request, env, ctx, context) {
         description,
         heroTitle,
         heroSubtitle,
-        accentColor,
+        colorTheme,
         footerNote,
         headerLinks,
+        hideCommunitySites,
+        hideCampusFeed,
         createdAt: site.createdAt,
         updatedAt: now,
       },
@@ -1270,9 +1295,11 @@ function defaultSiteConfigFromSite(site) {
       description: site.description || "",
       heroTitle: "",
       heroSubtitle: "",
-      accentColor: "#7b5034",
-      footerNote: "在這裡，把語文寫成你自己。",
+      colorTheme: "default",
+      footerNote: "",
       headerLinks: [],
+      hideCommunitySites: false,
+      hideCampusFeed: false,
       createdAt: site.createdAt || new Date().toISOString(),
       updatedAt: site.updatedAt || new Date().toISOString(),
       exportVersion: SITE_CONFIG_VERSION,
@@ -1295,6 +1322,16 @@ function sanitizeHexColor(value) {
   }
 
   return "#7b5034";
+}
+
+function sanitizeColorTheme(value) {
+  const theme = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (theme === "ocean" || theme === "forest" || theme === "violet") {
+    return theme;
+  }
+  return "default";
 }
 
 function sanitizeHeaderLinks(value) {
@@ -1334,7 +1371,7 @@ function normalizeSiteConfig(rawConfig, site) {
       heroTitle: "",
       heroSubtitle: "",
       colorTheme: "default",
-      footerNote: "在這裡，把語文寫成你自己。",
+      footerNote: "",
       headerLinks: [],
       hideCommunitySites: false,
       hideCampusFeed: false,
@@ -1354,7 +1391,7 @@ function normalizeSiteConfig(rawConfig, site) {
     description: sanitizeDescription(merged.description || ""),
     heroTitle: sanitizeTitle(merged.heroTitle || ""),
     heroSubtitle: sanitizeDescription(merged.heroSubtitle || ""),
-    colorTheme: merged.colorTheme || base.colorTheme || "default",
+    colorTheme: sanitizeColorTheme(merged.colorTheme || base.colorTheme || "default"),
     footerNote: sanitizeDescription(merged.footerNote || base.footerNote),
     headerLinks: sanitizeHeaderLinks(Array.isArray(merged.headerLinks) ? merged.headerLinks : []),
     hideCommunitySites: Boolean(merged.hideCommunitySites),
@@ -1372,9 +1409,11 @@ function defaultSiteConfigFromSiteBase(site) {
     description: site.description || "",
     heroTitle: "",
     heroSubtitle: "",
-    accentColor: "#7b5034",
-    footerNote: "在這裡，把語文寫成你自己。",
+    colorTheme: "default",
+    footerNote: "",
     headerLinks: [],
+    hideCommunitySites: false,
+    hideCampusFeed: false,
     createdAt: site.createdAt || new Date().toISOString(),
     updatedAt: site.updatedAt || new Date().toISOString(),
     exportVersion: SITE_CONFIG_VERSION,
@@ -2139,9 +2178,9 @@ function renderSiteHomePage(site, siteConfig, posts, communitySites, campusFeed,
         ` : ''}
       </div>
 
-      <footer class="site-footer muted">${escapeHtml(
-      siteConfig.footerNote || "在這裡，把語文寫成你自己。"
-    )}</footer>
+      ${(siteConfig.footerNote && siteConfig.footerNote !== "在這裡，把語文寫成你自己。")
+      ? `<footer class="site-footer muted">${escapeHtml(siteConfig.footerNote)}</footer>`
+      : ''}
     </section>
   `, siteConfig.colorTheme || 'default'
   );
@@ -2318,6 +2357,7 @@ function renderAdminPage(site, siteConfig, authed, baseDomain) {
             <textarea id="content" placeholder="# Start writing..."></textarea>
             <div class="row-actions">
               <button id="save" type="button">發佈 / 更新</button>
+              <a id="preview" class="link-button" href="#" target="_blank" rel="noreferrer noopener">預覽</a>
             </div>
             <p id="editor-status" class="muted"></p>
           </section>
@@ -2516,7 +2556,9 @@ function tryRestoreDraft(slug) {
 
 function syncPreview() {
   const slug = postSlugInput.value.trim().toLowerCase();
-  previewLink.href = slug ? '/' + encodeURIComponent(slug) : '#';
+  if (previewLink) {
+    previewLink.href = slug ? '/' + encodeURIComponent(slug) : '#';
+  }
 }
 
 function resetEditor() {
@@ -2524,8 +2566,9 @@ function resetEditor() {
   titleInput.value = '';
   postSlugInput.value = '';
   descriptionInput.value = '';
-  publishedInput.checked = false;
+  publishedInput.checked = true;
   contentInput.value = '';
+  if (typeof updateSaveBtn === 'function') updateSaveBtn();
   syncPreview();
   setStatus('New post');
   tryRestoreDraft('');
@@ -2557,9 +2600,17 @@ function renderPostList() {
 
 async function fetchJson(path, options) {
   const response = await fetch(path, options);
-  const payload = await response.json();
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
   if (!response.ok) {
-    throw new Error(payload.error || 'Request failed');
+    throw new Error((payload && payload.error) || ('Request failed (' + response.status + ')'));
+  }
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid server response');
   }
   return payload;
 }
@@ -2630,8 +2681,13 @@ async function savePost() {
 
     state.currentSlug = payload.post.postSlug;
     postSlugInput.value = payload.post.postSlug;
+    syncPreview();
     await refreshPosts();
-    setStatus('Saved at ' + new Date().toLocaleTimeString());
+    if (publishedInput.checked) {
+      setStatus('已發佈：' + new Date().toLocaleTimeString());
+    } else {
+      setStatus('已儲存草稿（前台不顯示）');
+    }
     saveDraft();
   } catch (error) {
     setStatus(error.message || 'Save failed', true);
@@ -2678,10 +2734,12 @@ titleInput.addEventListener('blur', () => {
   if (!postSlugInput.value.trim()) {
     postSlugInput.value = toSlug(titleInput.value);
   }
+  syncPreview();
 });
 
 postSlugInput.addEventListener('input', () => {
   postSlugInput.value = toSlug(postSlugInput.value);
+  syncPreview();
 });
 
 contentInput.addEventListener('input', saveDraft);
@@ -2838,13 +2896,13 @@ if (importBtn && importFile) {
 
 function renderSimpleMessage(code, message) {
   return renderLayout(
-    `${code} `,
+    `${code}`,
     `
-  < section class="panel" >
+    <section class="panel">
       <p class="eyebrow">${escapeHtml(code)}</p>
       <h1>${escapeHtml(message)}</h1>
       <p class="muted"><a href="/">Back</a></p>
-    </section >
+    </section>
   `
   );
 }
