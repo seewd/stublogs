@@ -7,9 +7,10 @@
   "colorTheme": "mint",
   "footerNote": "頁尾文字",
   "headerLinks": [],
-  "hideCommunitySites": true,
-  "hideCampusFeed": true,
+  "hideCommunitySites": false,
+  "hideCampusFeed": false,
+  "commentsEnabled": true,
   "createdAt": "2026-02-21T10:58:26.703Z",
-  "updatedAt": "2026-02-21T13:47:38.855Z",
+  "updatedAt": "2026-02-21T16:11:20.649Z",
   "exportVersion": 2
 }
