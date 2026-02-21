@@ -1,3 +1,4 @@
+[read on my blog](https://www.tachyon.moe/posts/LLM-Size-and-Sentience/)
 ## 起因是两个讨论
 
 ### 关于模型的能力
