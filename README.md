@@ -20,6 +20,7 @@
 - 路由：`*.bdfz.net/*`
 - 解析 `Host` 的第一段作為 `slug`
 - 依 `slug -> site_id` 查 D1 並渲染站點
+- 若命中保留詞，Worker 會 `fetch(request)` 轉回既有 origin（不劫持原服務）
 
 3. **DNS（Wildcard）**
 - Zone：`bdfz.net`

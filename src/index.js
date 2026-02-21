@@ -180,7 +180,9 @@ async function handleRequest(request, env) {
   }
 
   if (reservedSlugs.has(hostSlug)) {
-    return notFound("This subdomain is reserved");
+    // Reserved slugs are owned by platform/system services.
+    // Let Cloudflare continue to the configured origin for those hosts.
+    return fetch(request);
   }
 
   const site = await getSiteBySlug(env, hostSlug);

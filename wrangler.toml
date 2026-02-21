@@ -11,7 +11,7 @@ CORS_ALLOWED_ORIGINS = "https://blog.bdfz.net"
 [[d1_databases]]
 binding = "DB"
 database_name = "stublogs-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "1982d6b4-d1da-49a1-8260-8de952acc4eb"
 migrations_dir = "migrations"
 
 # 在部署時啟用
