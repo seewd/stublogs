@@ -7,10 +7,10 @@
   "colorTheme": "graphite",
   "footerNote": "页尾文字？",
   "headerLinks": [],
-  "hideCommunitySites": false,
-  "hideCampusFeed": false,
+  "hideCommunitySites": true,
+  "hideCampusFeed": true,
   "commentsEnabled": true,
   "createdAt": "2026-02-21T15:08:41.048Z",
-  "updatedAt": "2026-02-21T15:15:44.293Z",
+  "updatedAt": "2026-02-21T15:17:52.045Z",
   "exportVersion": 2
 }
