@@ -2,14 +2,14 @@
   "slug": "suen",
   "displayName": "suen",
   "description": "那麼，開始",
-  "heroTitle": "",
-  "heroSubtitle": "",
+  "heroTitle": "首頁標題",
+  "heroSubtitle": "首頁副標",
   "colorTheme": "mint",
-  "footerNote": "",
+  "footerNote": "頁尾文字",
   "headerLinks": [],
   "hideCommunitySites": true,
   "hideCampusFeed": true,
   "createdAt": "2026-02-21T10:58:26.703Z",
-  "updatedAt": "2026-02-21T13:38:27.008Z",
+  "updatedAt": "2026-02-21T13:47:38.855Z",
   "exportVersion": 2
 }
