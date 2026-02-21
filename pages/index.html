@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stublogs | bdfz.net 學生 Blog 平台</title>
+    <meta
+      name="description"
+      content="在 bdfz.net 立即建立你的個人子域名部落格，風格極簡，編輯體驗接近 Bear。"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="hero card">
+        <p class="eyebrow">bdfz.net student blogs</p>
+        <h1>一分鐘建立你的 <code>xxx.bdfz.net</code> 部落格</h1>
+        <p class="muted">
+          先輸入邀請碼註冊站點，再挑選你的子域名 <code>xxx</code>。註冊完成後會直接進入編輯後台。
+        </p>
+      </section>
+
+      <section class="card register">
+        <h2>立即註冊</h2>
+        <form id="register-form" class="form" autocomplete="off">
+          <label for="slug">子域名（slug）</label>
+          <input id="slug" name="slug" placeholder="alice" minlength="2" maxlength="30" required />
+
+          <label for="displayName">顯示名稱</label>
+          <input id="displayName" name="displayName" placeholder="Alice" maxlength="60" required />
+
+          <label for="adminPassword">管理密碼</label>
+          <input id="adminPassword" name="adminPassword" type="password" minlength="8" required />
+
+          <label for="inviteCode">註冊邀請碼</label>
+          <input id="inviteCode" name="inviteCode" placeholder="請輸入邀請碼" required />
+
+          <label for="description">站點簡介（可選）</label>
+          <input id="description" name="description" maxlength="240" placeholder="這裡寫你的簡介" />
+
+          <button type="submit">建立我的 Blog</button>
+        </form>
+
+        <p id="status" class="muted"></p>
+      </section>
+
+      <section class="card guide">
+        <h2>使用方式</h2>
+        <ol>
+          <li>輸入邀請碼並註冊，選擇你的專屬子域名。</li>
+          <li>系統建立站點後，直接跳轉到 <code>/admin</code> 編輯後台。</li>
+          <li>文章網址固定為 <code>https://xxx.bdfz.net/文章-slug</code>。</li>
+          <li>你可在後台按 <code>Export</code> 匯出所有資料（JSON）。</li>
+        </ol>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

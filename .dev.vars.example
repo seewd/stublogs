@@ -1,0 +1,8 @@
+BASE_DOMAIN=bdfz.net
+SESSION_SECRET=replace-with-long-random-string
+GITHUB_OWNER=replace-with-github-owner
+GITHUB_REPO=replace-with-github-repo
+GITHUB_BRANCH=main
+GITHUB_TOKEN=ghp_xxx
+INVITE_CODES=invite-2026
+CORS_ALLOWED_ORIGINS=https://blog.bdfz.net

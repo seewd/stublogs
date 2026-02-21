@@ -1,0 +1,17 @@
+{
+  "name": "stublogs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "pages:deploy": "wrangler pages deploy pages --project-name stublogs-home",
+    "db:migrate:local": "wrangler d1 migrations apply stublogs-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply stublogs-db --remote",
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.11.1"
+  }
+}
