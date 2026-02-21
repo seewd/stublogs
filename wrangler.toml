@@ -2,6 +2,11 @@ name = "stublogs"
 main = "src/index.js"
 compatibility_date = "2026-02-21"
 
+workers_dev = false
+routes = [
+  { pattern = "*.bdfz.net/*", zone_name = "bdfz.net" }
+]
+
 [vars]
 BASE_DOMAIN = "bdfz.net"
 RESERVED_SLUGS = "750,admin,ai,api,api-mark,app,assets,blog,bwh2,cdn,chat,class,d,dashboard,dl,dmit,dmit160,dmit197,dmit2t,dmitpro2,dms,docs,ff,files,forum,ftp,gcjp,gcsg,gcus,gk,h,hlm,i,img,jc,jks,jks-ai,jpg,kama,kb,kw,kz,mail,mark,me,media,mf,moxie,mx,o,paper,ra112,ra154,rfc,seiue,ssh,static,status,stu,t,todo,tree,upvote,vpn,www,wx,xz"
@@ -13,8 +18,3 @@ binding = "DB"
 database_name = "stublogs-db"
 database_id = "1982d6b4-d1da-49a1-8260-8de952acc4eb"
 migrations_dir = "migrations"
-
-# 在部署時啟用
-# routes = [
-#   { pattern = "*.bdfz.net/*", zone_name = "bdfz.net" }
-# ]
