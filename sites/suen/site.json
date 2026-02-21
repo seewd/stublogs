@@ -4,10 +4,12 @@
   "description": "那麼，開始",
   "heroTitle": "",
   "heroSubtitle": "",
-  "accentColor": "#7b5034",
-  "footerNote": "在這裡，把語文寫成你自己。",
+  "colorTheme": "default",
+  "footerNote": "",
   "headerLinks": [],
+  "hideCommunitySites": true,
+  "hideCampusFeed": true,
   "createdAt": "2026-02-21T10:58:26.703Z",
-  "updatedAt": "2026-02-21T10:58:26.703Z",
+  "updatedAt": "2026-02-21T13:34:51.865Z",
   "exportVersion": 2
 }
