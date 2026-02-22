@@ -23,10 +23,11 @@ const DEFAULT_RESERVED_SLUGS = [
 const SESSION_COOKIE = "stublogs_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const DEFAULT_API_ENTRY_SLUG = "app";
-const SITE_CONFIG_VERSION = 2;
+const SITE_CONFIG_VERSION = 3;
 const LEGACY_FOOTER_NOTE = "在這裡，把語文寫成你自己。";
 const POSTS_PAGE_SIZE = 10;
 const COMMENTS_PAGE_SIZE = 20;
+const DEFAULT_FAVICON_URL = "https://img.bdfz.net/20250503004.webp";
 
 const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_RATE_MAX_ATTEMPTS = 5;
@@ -35,7 +36,6 @@ const COMMENT_RATE_WINDOW_MS = 60 * 1000;
 const COMMENT_RATE_MAX_ATTEMPTS = 6;
 const commentAttempts = new Map();
 let commentsTableReadyPromise = null;
-let postsColumnsReadyPromise = null;
 
 export default {
   async fetch(request, env, ctx) {
@@ -229,14 +229,18 @@ async function handleRequest(request, env, ctx) {
   if (path === "/") {
     const siteConfig = await getSiteConfig(env, site);
     const page = parsePositiveInt(url.searchParams.get("page"), 1, 1, 9999);
-    const postsPage = await listPostsPage(env, site.id, page, POSTS_PAGE_SIZE);
-    const communitySites = await listCommunitySites(env, site.slug, 12);
-    const campusFeed = await listCampusFeed(env, site.id, 18);
+    const [postsPage, communitySites, campusFeed, sitePages] = await Promise.all([
+      listPostsPage(env, site.id, page, POSTS_PAGE_SIZE),
+      listCommunitySites(env, site.slug, 12),
+      listCampusFeed(env, site.id, 18),
+      listSitePages(env, site.id, 20),
+    ]);
     return html(
       renderSiteHomePage(
         site,
         siteConfig,
         postsPage.posts,
+        sitePages,
         communitySites,
         campusFeed,
         baseDomain,
@@ -443,6 +447,7 @@ async function handleApi(request, env, ctx, context) {
             colorTheme: "default",
             footerNote: "",
             customCss: "",
+            faviconUrl: DEFAULT_FAVICON_URL,
             headerLinks: [],
             hideCommunitySites: false,
             hideCampusFeed: false,
@@ -487,7 +492,7 @@ async function handleApi(request, env, ctx, context) {
         1,
         now,
         now,
-        { excludeFromCampusFeed: true }
+        { excludeFromCampusFeed: true, isPage: false }
       );
 
       const notifyTask = notifyTelegramNewSite(env, {
@@ -592,6 +597,9 @@ async function handleApi(request, env, ctx, context) {
     const customCss = sanitizeCustomCss(
       body.customCss ?? currentConfig.customCss ?? ""
     );
+    const faviconUrl = sanitizeFaviconUrl(
+      body.faviconUrl ?? currentConfig.faviconUrl ?? DEFAULT_FAVICON_URL
+    );
     const headerLinks = Array.isArray(body.headerLinks)
       ? sanitizeHeaderLinks(body.headerLinks)
       : sanitizeHeaderLinks(currentConfig.headerLinks || []);
@@ -615,6 +623,7 @@ async function handleApi(request, env, ctx, context) {
         colorTheme,
         footerNote,
         customCss,
+        faviconUrl,
         headerLinks,
         hideCommunitySites,
         hideCampusFeed,
@@ -707,6 +716,47 @@ async function handleApi(request, env, ctx, context) {
   if (request.method === "POST" && path === "/api/logout") {
     const response = json({ ok: true }, 200);
     return withCookie(response, buildClearSessionCookie());
+  }
+
+  if (request.method === "POST" && path === "/api/change-password") {
+    if (!hostSlug) {
+      return json({ error: "Missing site context" }, 400);
+    }
+
+    const site = await getSiteBySlug(env, hostSlug);
+    if (!site) {
+      return json({ error: "Site not found" }, 404);
+    }
+
+    const authed = await isSiteAuthenticated(request, env, site.slug);
+    if (!authed) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await readJson(request);
+    const currentPassword = String(body.currentPassword || "");
+    const newPassword = String(body.newPassword || "");
+
+    if (newPassword.length < 8) {
+      return json({ error: "New password must be at least 8 characters" }, 400);
+    }
+
+    const validCurrent = await verifyPassword(currentPassword, site.adminSecretHash, env);
+    if (!validCurrent) {
+      return json({ error: "Current password is incorrect" }, 403);
+    }
+
+    const nextHash = await createPasswordHash(newPassword, env);
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `UPDATE sites
+       SET admin_secret_hash = ?, updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(nextHash, now, site.id)
+      .run();
+
+    return json({ ok: true }, 200);
   }
 
   if (request.method === "GET" && path === "/api/list-posts") {
@@ -1013,6 +1063,7 @@ async function handleApi(request, env, ctx, context) {
     const description = sanitizeDescription(body.description || "");
     const content = String(body.content || "");
     const published = Boolean(body.published) ? 1 : 0;
+    const isPage = Boolean(body.isPage) ? 1 : 0;
 
     if (!title) {
       return json({ error: "Title is required" }, 400);
@@ -1068,7 +1119,8 @@ async function handleApi(request, env, ctx, context) {
         description,
         published,
         now,
-        createdAt
+        createdAt,
+        { isPage: isPage === 1 }
       );
     } catch (error) {
       console.error("Failed to save post", error);
@@ -1089,6 +1141,7 @@ async function handleApi(request, env, ctx, context) {
           title,
           description,
           published,
+          isPage,
           updatedAt: now,
         },
       },
@@ -1204,10 +1257,7 @@ async function handleApi(request, env, ctx, context) {
           continue;
         }
 
-        if (String(row.is_page || "").toLowerCase() === "true") {
-          skipped.push({ title, reason: "is_page" });
-          continue;
-        }
+        const isPage = String(row.is_page || "").toLowerCase() === "true" ? 1 : 0;
 
         let rawSlug = String(row.slug || row.link || "").trim();
         rawSlug = rawSlug.replace(/^\/+/, "");
@@ -1263,10 +1313,11 @@ async function handleApi(request, env, ctx, context) {
           sanitizeDescription(description),
           published,
           createdAt,
-          createdAt
+          createdAt,
+          { isPage: isPage === 1 }
         );
 
-        imported.push({ title, postSlug });
+        imported.push({ title, postSlug, isPage: isPage === 1 });
       } catch (error) {
         errors.push({ title: row.title || "unknown", error: error.message || "unknown error" });
       }
@@ -1320,6 +1371,10 @@ function formatSiteForClient(site) {
 
 async function listPublicSites(env, limit = 500) {
   const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 1000);
+  const hasIsPageColumn = await hasPostsColumn(env, "is_page");
+  const postCountClause = hasIsPageColumn
+    ? "p.site_id = s.id AND p.published = 1 AND p.is_page = 0"
+    : "p.site_id = s.id AND p.published = 1";
   const result = await env.DB.prepare(
     `SELECT
       s.slug AS slug,
@@ -1330,7 +1385,7 @@ async function listPublicSites(env, limit = 500) {
       (
         SELECT COUNT(*)
         FROM posts p
-        WHERE p.site_id = s.id AND p.published = 1
+        WHERE ${postCountClause}
       ) AS postCount
     FROM sites s
     ORDER BY s.created_at DESC
@@ -1380,9 +1435,12 @@ async function listCommunitySites(env, currentSlug, limit = 12) {
 async function listCampusFeed(env, excludeSiteId = null, limit = 24) {
   const safeLimit = Math.min(Math.max(Number(limit) || 24, 1), 120);
   const hasExcludeColumn = await hasPostsColumn(env, "exclude_from_campus_feed");
-  const visibilityClause = hasExcludeColumn
+  const hasIsPageColumn = await hasPostsColumn(env, "is_page");
+  const feedVisibilityClause = hasExcludeColumn
     ? "p.published = 1 AND p.exclude_from_campus_feed = 0"
     : "p.published = 1 AND NOT (p.post_slug = 'hello-world' AND p.title = 'Hello World')";
+  const pageExclusionClause = hasIsPageColumn ? "AND p.is_page = 0" : "";
+  const visibilityClause = `${feedVisibilityClause} ${pageExclusionClause}`.trim();
   const sql = excludeSiteId
     ? `SELECT
         p.post_slug AS postSlug,
@@ -1430,6 +1488,9 @@ async function listPostsPage(env, siteId, page = 1, pageSize = POSTS_PAGE_SIZE) 
   const safePageSize = Math.min(Math.max(Number(pageSize) || POSTS_PAGE_SIZE, 1), 60);
   const safePage = Math.max(Number(page) || 1, 1);
   const offset = (safePage - 1) * safePageSize;
+  const hasIsPageColumn = await hasPostsColumn(env, "is_page");
+  const isPageSelect = hasIsPageColumn ? "is_page AS isPage" : "0 AS isPage";
+  const pageFilter = hasIsPageColumn ? "AND is_page = 0" : "";
 
   const [rowsResult, totalResult] = await Promise.all([
     env.DB.prepare(
@@ -1438,10 +1499,11 @@ async function listPostsPage(env, siteId, page = 1, pageSize = POSTS_PAGE_SIZE) 
         title,
         description,
         published,
+        ${isPageSelect},
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM posts
-      WHERE site_id = ? AND published = 1
+      WHERE site_id = ? AND published = 1 ${pageFilter}
       ORDER BY updated_at DESC
       LIMIT ? OFFSET ?`
     )
@@ -1450,7 +1512,7 @@ async function listPostsPage(env, siteId, page = 1, pageSize = POSTS_PAGE_SIZE) 
     env.DB.prepare(
       `SELECT COUNT(*) AS total
       FROM posts
-      WHERE site_id = ? AND published = 1`
+      WHERE site_id = ? AND published = 1 ${pageFilter}`
     )
       .bind(siteId)
       .first(),
@@ -1476,29 +1538,51 @@ async function listPostsPage(env, siteId, page = 1, pageSize = POSTS_PAGE_SIZE) 
 }
 
 async function listPosts(env, siteId, includeDrafts = false) {
-  const sql = includeDrafts
-    ? `SELECT
-        post_slug AS postSlug,
-        title,
-        description,
-        published,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM posts
-      WHERE site_id = ?
-      ORDER BY updated_at DESC`
-    : `SELECT
-        post_slug AS postSlug,
-        title,
-        description,
-        published,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM posts
-      WHERE site_id = ? AND published = 1
-      ORDER BY updated_at DESC`;
+  const hasIsPageColumn = await hasPostsColumn(env, "is_page");
+  const isPageSelect = hasIsPageColumn ? "is_page AS isPage" : "0 AS isPage";
+  const publishedFilter = includeDrafts ? "" : "AND published = 1";
+  const pageFilter = includeDrafts
+    ? ""
+    : (hasIsPageColumn ? "AND is_page = 0" : "");
+
+  const sql = `SELECT
+      post_slug AS postSlug,
+      title,
+      description,
+      published,
+      ${isPageSelect},
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM posts
+    WHERE site_id = ? ${publishedFilter} ${pageFilter}
+    ORDER BY updated_at DESC`;
 
   const result = await env.DB.prepare(sql).bind(siteId).all();
+  return result.results || [];
+}
+
+async function listSitePages(env, siteId, limit = 20) {
+  const hasIsPageColumn = await hasPostsColumn(env, "is_page");
+  if (!hasIsPageColumn) {
+    return [];
+  }
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const result = await env.DB.prepare(
+    `SELECT
+      post_slug AS postSlug,
+      title,
+      description,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM posts
+    WHERE site_id = ? AND published = 1 AND is_page = 1
+    ORDER BY updated_at DESC
+    LIMIT ?`
+  )
+    .bind(siteId, safeLimit)
+    .all();
+
   return result.results || [];
 }
 
@@ -1534,21 +1618,13 @@ async function ensureCommentsTable(env) {
 }
 
 async function getPostsColumns(env) {
-  if (!postsColumnsReadyPromise) {
-    postsColumnsReadyPromise = (async () => {
-      const result = await env.DB.prepare("PRAGMA table_info(posts)").all();
-      const rows = result.results || [];
-      return new Set(
-        rows
-          .map((item) => String(item.name || "").toLowerCase())
-          .filter(Boolean)
-      );
-    })().catch((error) => {
-      postsColumnsReadyPromise = null;
-      throw error;
-    });
-  }
-  return postsColumnsReadyPromise;
+  const result = await env.DB.prepare("PRAGMA table_info(posts)").all();
+  const rows = result.results || [];
+  return new Set(
+    rows
+      .map((item) => String(item.name || "").toLowerCase())
+      .filter(Boolean)
+  );
 }
 
 async function hasPostsColumn(env, columnName) {
@@ -1701,12 +1777,15 @@ async function deleteComment(env, siteId, commentId) {
 }
 
 async function getPostMeta(env, siteId, postSlug, includeDrafts = false) {
+  const hasIsPageColumn = await hasPostsColumn(env, "is_page");
+  const isPageSelect = hasIsPageColumn ? "is_page AS isPage" : "0 AS isPage";
   const sql = includeDrafts
     ? `SELECT
         post_slug AS postSlug,
         title,
         description,
         published,
+        ${isPageSelect},
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM posts
@@ -1717,6 +1796,7 @@ async function getPostMeta(env, siteId, postSlug, includeDrafts = false) {
         title,
         description,
         published,
+        ${isPageSelect},
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM posts
@@ -1739,7 +1819,46 @@ async function upsertPostMeta(
 ) {
   const created = createdAt || updatedAt;
   const excludeFromCampusFeed = options.excludeFromCampusFeed ? 1 : 0;
+  const isPage = options.isPage ? 1 : 0;
   const hasExcludeColumn = await hasPostsColumn(env, "exclude_from_campus_feed");
+  const hasIsPageColumn = await hasPostsColumn(env, "is_page");
+
+  if (hasExcludeColumn && hasIsPageColumn) {
+    return env.DB.prepare(
+      `INSERT INTO posts (
+        site_id,
+        post_slug,
+        title,
+        description,
+        published,
+        is_page,
+        exclude_from_campus_feed,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(site_id, post_slug)
+      DO UPDATE SET
+        title = excluded.title,
+        description = excluded.description,
+        published = excluded.published,
+        is_page = excluded.is_page,
+        exclude_from_campus_feed = excluded.exclude_from_campus_feed,
+        updated_at = excluded.updated_at`
+    )
+      .bind(
+        siteId,
+        postSlug,
+        title,
+        description,
+        published,
+        isPage,
+        excludeFromCampusFeed,
+        created,
+        updatedAt
+      )
+      .run();
+  }
 
   if (hasExcludeColumn) {
     return env.DB.prepare(
@@ -1769,6 +1888,40 @@ async function upsertPostMeta(
         description,
         published,
         excludeFromCampusFeed,
+        created,
+        updatedAt
+      )
+      .run();
+  }
+
+  if (hasIsPageColumn) {
+    return env.DB.prepare(
+      `INSERT INTO posts (
+        site_id,
+        post_slug,
+        title,
+        description,
+        published,
+        is_page,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(site_id, post_slug)
+      DO UPDATE SET
+        title = excluded.title,
+        description = excluded.description,
+        published = excluded.published,
+        is_page = excluded.is_page,
+        updated_at = excluded.updated_at`
+    )
+      .bind(
+        siteId,
+        postSlug,
+        title,
+        description,
+        published,
+        isPage,
         created,
         updatedAt
       )
@@ -1962,6 +2115,7 @@ function defaultSiteConfigFromSite(site) {
       colorTheme: "default",
       footerNote: "",
       customCss: "",
+      faviconUrl: DEFAULT_FAVICON_URL,
       headerLinks: [],
       hideCommunitySites: false,
       hideCampusFeed: false,
@@ -2034,6 +2188,17 @@ function sanitizeUrl(value) {
   return "";
 }
 
+function sanitizeFaviconUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(url)) {
+    return url.slice(0, 500);
+  }
+  return "";
+}
+
 function normalizeSiteConfig(rawConfig, site) {
   const base = site
     ? defaultSiteConfigFromSiteBase(site)
@@ -2046,6 +2211,7 @@ function normalizeSiteConfig(rawConfig, site) {
       colorTheme: "default",
       footerNote: "",
       customCss: "",
+      faviconUrl: DEFAULT_FAVICON_URL,
       headerLinks: [],
       hideCommunitySites: false,
       hideCampusFeed: false,
@@ -2070,6 +2236,7 @@ function normalizeSiteConfig(rawConfig, site) {
     colorTheme: sanitizeColorTheme(merged.colorTheme || base.colorTheme || "default"),
     footerNote: normalizedFooterNote === LEGACY_FOOTER_NOTE ? "" : normalizedFooterNote,
     customCss: sanitizeCustomCss(merged.customCss || base.customCss || ""),
+    faviconUrl: sanitizeFaviconUrl(merged.faviconUrl || base.faviconUrl || DEFAULT_FAVICON_URL),
     headerLinks: sanitizeHeaderLinks(Array.isArray(merged.headerLinks) ? merged.headerLinks : []),
     hideCommunitySites: Boolean(merged.hideCommunitySites),
     hideCampusFeed: Boolean(merged.hideCampusFeed),
@@ -2090,6 +2257,7 @@ function defaultSiteConfigFromSiteBase(site) {
     colorTheme: "default",
     footerNote: "",
     customCss: "",
+    faviconUrl: DEFAULT_FAVICON_URL,
     headerLinks: [],
     hideCommunitySites: false,
     hideCampusFeed: false,
@@ -2829,6 +2997,7 @@ function renderSiteHomePage(
   site,
   siteConfig,
   posts,
+  sitePages,
   communitySites,
   campusFeed,
   baseDomain,
@@ -2844,6 +3013,15 @@ function renderSiteHomePage(
           `<a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(
             item.label
           )}</a>`
+      )
+      .join("")}</nav>`
+    : "";
+
+  const pagesNav = sitePages.length
+    ? `<nav class="site-nav page-nav">${sitePages
+      .map(
+        (item) =>
+          `<a href="/${encodeURIComponent(item.postSlug)}">${escapeHtml(item.title)}</a>`
       )
       .join("")}</nav>`
     : "";
@@ -2908,6 +3086,7 @@ function renderSiteHomePage(
       </header>
       ${renderThemeControlDock("front")}
       ${navLinks}
+      ${pagesNav ? `<h3>頁面</h3>${pagesNav}` : ""}
 
       <div class="community-grid">
         <section>
@@ -2929,7 +3108,10 @@ function renderSiteHomePage(
       ? `<footer class="site-footer muted">${escapeHtml(siteConfig.footerNote)}</footer>`
       : ''}
     </section>
-  `, siteConfig.colorTheme || 'default', siteConfig.customCss || ""
+  `,
+    siteConfig.colorTheme || 'default',
+    siteConfig.customCss || "",
+    siteConfig.faviconUrl || DEFAULT_FAVICON_URL
   );
 }
 
@@ -2990,7 +3172,7 @@ function renderPostPage(site, siteConfig, post, articleHtml, communitySites, bas
       <article class="article">
         <p class="eyebrow"><a href="/">← ${escapeHtml(site.displayName)}</a> · ${escapeHtml(
       site.slug
-    )}.${escapeHtml(baseDomain)} ${previewMode ? '<span class="preview-badge">Preview</span>' : ''}</p>
+    )}.${escapeHtml(baseDomain)} ${Number(post.isPage) === 1 ? '<span class="preview-badge">Page</span>' : ''} ${previewMode ? '<span class="preview-badge">Preview</span>' : ''}</p>
         <h1>${escapeHtml(post.title)}</h1>
         <p class="muted">${escapeHtml(formatDate(post.updatedAt))} <span class="read-time">· ${readMinutes} min read</span></p>
         ${renderThemeControlDock("front")}
@@ -3170,7 +3352,8 @@ function renderPostPage(site, siteConfig, post, articleHtml, communitySites, bas
     </script>
   `,
     siteConfig.colorTheme || "default",
-    siteConfig.customCss || ""
+    siteConfig.customCss || "",
+    siteConfig.faviconUrl || DEFAULT_FAVICON_URL
   );
 }
 
@@ -3227,7 +3410,10 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
           }
         });
       </script>
-    `, siteConfig.colorTheme || 'default'
+    `,
+      siteConfig.colorTheme || 'default',
+      "",
+      siteConfig.faviconUrl || DEFAULT_FAVICON_URL
     );
   }
 
@@ -3275,6 +3461,10 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
               <input id="published" type="checkbox" />
               Published
             </label>
+            <label class="inline-check">
+              <input id="isPage" type="checkbox" />
+              Page（顯示於頁面導航，不進文章流）
+            </label>
             <label>Content</label>
             <div class="md-toolbar">
               <button type="button" data-md="h1" title="Heading 1">H1</button>
@@ -3296,6 +3486,19 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
               <button type="button" data-md="codeblock" title="Code block">{ }</button>
               <button type="button" data-md="hr" title="Divider">—</button>
               <button type="button" id="fullscreen-toggle" class="fullscreen-btn">⛶ 全屏</button>
+            </div>
+            <div class="template-row">
+              <select id="content-template" aria-label="內容範本">
+                <option value="">選擇內容範本（Bear 風格）</option>
+                <option value="daily-note">每日筆記</option>
+                <option value="reading-note">閱讀筆記</option>
+                <option value="essay-outline">文章大綱</option>
+                <option value="project-log">專案日誌</option>
+                <option value="math-note">數學筆記（KaTeX）</option>
+                <option value="about-page">關於頁面</option>
+                <option value="links-page">連結頁面</option>
+              </select>
+              <button id="apply-template" type="button" class="link-button">插入範本</button>
             </div>
             <textarea id="content" placeholder="# Start writing..."></textarea>
             <div class="row-actions">
@@ -3336,6 +3539,8 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
               <option value="mint">薄荷 / 青綠 (Mint)</option>
               <option value="graphite">石墨 / 藍灰 (Graphite)</option>
             </select>
+            <label>站點 Favicon URL</label>
+            <input id="siteFaviconUrl" maxlength="500" placeholder="https://example.com/favicon.webp" />
             <label>頁尾文字</label>
             <input id="siteFooterNote" maxlength="240" />
             <label>自訂 CSS（前台）</label>
@@ -3357,6 +3562,15 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
             </label>
             <button id="save-settings" type="button">儲存站點設定</button>
             <p id="settings-status" class="muted"></p>
+            <h3>修改密碼</h3>
+            <label>目前密碼</label>
+            <input id="currentPassword" type="password" minlength="8" />
+            <label>新密碼</label>
+            <input id="newPassword" type="password" minlength="8" />
+            <label>確認新密碼</label>
+            <input id="confirmNewPassword" type="password" minlength="8" />
+            <button id="change-password" type="button">更新密碼</button>
+            <p id="password-status" class="muted"></p>
           </section>
           <aside class="settings-aside">
             <h3>匯入</h3>
@@ -3387,16 +3601,22 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
       const siteHeroTitleInput = document.getElementById('siteHeroTitle');
       const siteHeroSubtitleInput = document.getElementById('siteHeroSubtitle');
       const siteColorThemeInput = document.getElementById('siteColorTheme');
+      const siteFaviconUrlInput = document.getElementById('siteFaviconUrl');
       const siteFooterNoteInput = document.getElementById('siteFooterNote');
       const siteCustomCssInput = document.getElementById('siteCustomCss');
       const siteHeaderLinksInput = document.getElementById('siteHeaderLinks');
       const siteHideCommunitySitesInput = document.getElementById('siteHideCommunitySites');
       const siteHideCampusFeedInput = document.getElementById('siteHideCampusFeed');
       const siteCommentsEnabledInput = document.getElementById('siteCommentsEnabled');
+      const currentPasswordInput = document.getElementById('currentPassword');
+      const newPasswordInput = document.getElementById('newPassword');
+      const confirmNewPasswordInput = document.getElementById('confirmNewPassword');
+      const passwordStatusEl = document.getElementById('password-status');
       const titleInput = document.getElementById('title');
       const postSlugInput = document.getElementById('postSlug');
       const descriptionInput = document.getElementById('description');
       const publishedInput = document.getElementById('published');
+      const isPageInput = document.getElementById('isPage');
       const contentInput = document.getElementById('content');
       const statusEl = document.getElementById('editor-status');
       const settingsStatusEl = document.getElementById('settings-status');
@@ -3404,6 +3624,8 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
       const commentAdminStatusEl = document.getElementById('comment-admin-status');
       const previewLink = document.getElementById('preview');
       const deletePostBtn = document.getElementById('delete-post');
+      const applyTemplateBtn = document.getElementById('apply-template');
+      const contentTemplateSelect = document.getElementById('content-template');
       let savingPost = false;
       let savingSettings = false;
       let importingPosts = false;
@@ -3421,6 +3643,14 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
         }
         settingsStatusEl.textContent = message;
         settingsStatusEl.style.color = isError ? '#ae3a22' : '#6b6357';
+      }
+
+      function setPasswordStatus(message, isError = false) {
+        if (!passwordStatusEl) {
+          return;
+        }
+        passwordStatusEl.textContent = message;
+        passwordStatusEl.style.color = isError ? '#ae3a22' : '#6b6357';
       }
 
       function toSlug(value) {
@@ -3483,6 +3713,7 @@ function applySettingsToForm(config) {
   siteHeroTitleInput.value = safe.heroTitle || '';
   siteHeroSubtitleInput.value = safe.heroSubtitle || '';
   if (siteColorThemeInput) siteColorThemeInput.value = safe.colorTheme || 'default';
+  if (siteFaviconUrlInput) siteFaviconUrlInput.value = safe.faviconUrl || '';
   siteFooterNoteInput.value = safe.footerNote || '';
   if (siteCustomCssInput) siteCustomCssInput.value = safe.customCss || '';
   siteHeaderLinksInput.value = renderHeaderLinksValue(safe.headerLinks || []);
@@ -3503,6 +3734,7 @@ function getEditorSnapshot() {
     description: descriptionInput.value,
     content: contentInput.value,
     published: publishedInput.checked,
+    isPage: isPageInput ? isPageInput.checked : false,
   });
 }
 
@@ -3522,6 +3754,7 @@ function saveDraft() {
     description: descriptionInput.value,
     content: contentInput.value,
     published: publishedInput.checked,
+    isPage: isPageInput ? isPageInput.checked : false,
     savedAt: Date.now(),
   };
 
@@ -3550,6 +3783,8 @@ function tryRestoreDraft(slug) {
       descriptionInput.value = draft.description || descriptionInput.value;
       contentInput.value = draft.content || contentInput.value;
       publishedInput.checked = Boolean(draft.published);
+      if (isPageInput) isPageInput.checked = Boolean(draft.isPage);
+      if (typeof updateSaveBtn === 'function') updateSaveBtn();
       syncPreview();
     }
   } catch {
@@ -3572,6 +3807,7 @@ function resetEditor() {
   postSlugInput.value = '';
   descriptionInput.value = '';
   publishedInput.checked = true;
+  if (isPageInput) isPageInput.checked = false;
   contentInput.value = '';
   if (typeof updateSaveBtn === 'function') updateSaveBtn();
   syncPreview();
@@ -3613,7 +3849,9 @@ function renderPostList() {
   postList.innerHTML = filtered
     .map((post) => {
       const activeClass = post.postSlug === state.currentSlug ? 'active' : '';
-      const stateLabel = Number(post.published) === 1 ? 'Published' : 'Draft';
+      const visibilityLabel = Number(post.published) === 1 ? 'Published' : 'Draft';
+      const typeLabel = Number(post.isPage) === 1 ? 'Page' : 'Post';
+      const stateLabel = typeLabel + ' · ' + visibilityLabel;
       return '<li><button class="post-item-btn ' + activeClass + '" data-slug="' +
         post.postSlug + '">' +
         escapeText(post.title) +
@@ -3750,6 +3988,7 @@ async function loadPost(slug) {
     postSlugInput.value = post.postSlug || '';
     descriptionInput.value = post.description || '';
     publishedInput.checked = Number(post.published) === 1;
+    if (isPageInput) isPageInput.checked = Number(post.isPage) === 1;
     contentInput.value = post.content || '';
     if (deletePostBtn) deletePostBtn.disabled = false;
     if (typeof updateSaveBtn === 'function') updateSaveBtn();
@@ -3799,6 +4038,7 @@ async function savePost() {
         description: descriptionInput.value.trim(),
         content: contentInput.value,
         published: publishedInput.checked,
+        isPage: isPageInput ? isPageInput.checked : false,
       }),
     });
 
@@ -3808,9 +4048,17 @@ async function savePost() {
     await refreshPosts();
     await refreshCommentsForCurrentPost();
     if (publishedInput.checked) {
-      setStatus('已發佈：' + new Date().toLocaleTimeString());
+      if (isPageInput && isPageInput.checked) {
+        setStatus('頁面已發佈：' + new Date().toLocaleTimeString());
+      } else {
+        setStatus('文章已發佈：' + new Date().toLocaleTimeString());
+      }
     } else {
-      setStatus('已儲存草稿（前台不顯示）');
+      if (isPageInput && isPageInput.checked) {
+        setStatus('頁面草稿已儲存（前台不顯示）');
+      } else {
+        setStatus('文章草稿已儲存（前台不顯示）');
+      }
     }
     markBaseline();
     saveDraft();
@@ -3845,6 +4093,7 @@ async function saveSiteSettings() {
         heroTitle: siteHeroTitleInput.value.trim(),
         heroSubtitle: siteHeroSubtitleInput.value.trim(),
         colorTheme: siteColorThemeInput.value,
+        faviconUrl: siteFaviconUrlInput ? siteFaviconUrlInput.value.trim() : '',
         footerNote: siteFooterNoteInput.value.trim(),
         customCss: siteCustomCssInput ? siteCustomCssInput.value : '',
         headerLinks: parseHeaderLinks(siteHeaderLinksInput.value),
@@ -3873,6 +4122,55 @@ async function saveSiteSettings() {
   }
 }
 
+async function changePassword() {
+  if (!currentPasswordInput || !newPasswordInput || !confirmNewPasswordInput) {
+    return;
+  }
+  const currentPassword = currentPasswordInput.value;
+  const newPassword = newPasswordInput.value;
+  const confirmPassword = confirmNewPasswordInput.value;
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    setPasswordStatus('請完整填寫密碼欄位', true);
+    return;
+  }
+  if (newPassword.length < 8) {
+    setPasswordStatus('新密碼至少 8 位', true);
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    setPasswordStatus('兩次新密碼不一致', true);
+    return;
+  }
+
+  setPasswordStatus('更新密碼中...');
+  const changePasswordBtn = document.getElementById('change-password');
+  if (changePasswordBtn) {
+    changePasswordBtn.disabled = true;
+  }
+
+  try {
+    await fetchJson('/api/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        currentPassword,
+        newPassword,
+      }),
+    });
+    currentPasswordInput.value = '';
+    newPasswordInput.value = '';
+    confirmNewPasswordInput.value = '';
+    setPasswordStatus('密碼更新完成');
+  } catch (error) {
+    setPasswordStatus(error.message || '更新密碼失敗', true);
+  } finally {
+    if (changePasswordBtn) {
+      changePasswordBtn.disabled = false;
+    }
+  }
+}
+
 document.getElementById('new-post').addEventListener('click', () => {
   if (hasUnsavedChanges() && !confirm('目前有未儲存內容，確定建立新文章？')) {
     return;
@@ -3881,6 +4179,10 @@ document.getElementById('new-post').addEventListener('click', () => {
 });
 document.getElementById('save').addEventListener('click', savePost);
 document.getElementById('save-settings').addEventListener('click', saveSiteSettings);
+const changePasswordBtn = document.getElementById('change-password');
+if (changePasswordBtn) {
+  changePasswordBtn.addEventListener('click', changePassword);
+}
 document.getElementById('logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' });
   location.reload();
@@ -3988,12 +4290,23 @@ function updateSaveBtn() {
   if (!saveBtn) {
     return;
   }
-  saveBtn.textContent = publishedInput.checked ? '發佈 / 更新 (⌘S)' : '儲存草稿 (⌘S)';
+  const isPage = isPageInput ? isPageInput.checked : false;
+  if (publishedInput.checked) {
+    saveBtn.textContent = isPage ? '發佈頁面 / 更新 (⌘S)' : '發佈文章 / 更新 (⌘S)';
+  } else {
+    saveBtn.textContent = isPage ? '儲存頁面草稿 (⌘S)' : '儲存文章草稿 (⌘S)';
+  }
 }
 publishedInput.addEventListener('change', () => {
   saveDraft();
   updateSaveBtn();
 });
+if (isPageInput) {
+  isPageInput.addEventListener('change', () => {
+    saveDraft();
+    updateSaveBtn();
+  });
+}
 updateSaveBtn();
 
 document.addEventListener('keydown', (event) => {
@@ -4132,12 +4445,52 @@ function insertMd(type) {
   saveDraft();
 }
 
+const TEMPLATE_LIBRARY = {
+  'daily-note': '# 每日筆記\n\n## 今天做了什麼\n- \n\n## 今天學到什麼\n- \n\n## 明天要做什麼\n- [ ] \n',
+  'reading-note': '# 閱讀筆記：書名 / 文章名\n\n## 核心觀點\n- \n\n## 精彩段落\n> \n\n## 我的想法\n- \n\n## 可行動項\n- [ ] \n',
+  'essay-outline': '# 文章標題\n\n## 問題背景\n\n## 核心觀點\n\n## 例子與論證\n\n## 反方與回應\n\n## 結論\n',
+  'project-log': '# 專案日誌：專案名\n\n## 本次目標\n- \n\n## 進展\n- \n\n## 問題\n- \n\n## 下一步\n- [ ] \n',
+  'math-note': '# 數學筆記\n\n行內公式示例：$a^2+b^2=c^2$\n\n區塊公式示例：\n$$\n\\int_0^1 x^2 \\, dx = \\frac{1}{3}\n$$\n\n## 推導\n1. \n2. \n3. \n',
+  'about-page': '# 關於我\n\n你好，我是 ____。\n\n## 我在做什麼\n- \n\n## 我關心的主題\n- \n\n## 聯絡我\n- Email：\n- 網站：\n',
+  'links-page': '# 連結\n\n## 作品\n- [作品一](https://)\n- [作品二](https://)\n\n## 推薦閱讀\n- [文章一](https://)\n- [文章二](https://)\n\n## 常用工具\n- [工具一](https://)\n',
+};
+
+function applyTemplateToEditor() {
+  if (!contentTemplateSelect) {
+    return;
+  }
+  const key = contentTemplateSelect.value;
+  if (!key || !TEMPLATE_LIBRARY[key]) {
+    return;
+  }
+  const template = TEMPLATE_LIBRARY[key];
+  const current = contentInput.value;
+  if (!current.trim()) {
+    contentInput.value = template;
+  } else {
+    contentInput.value = current.replace(/\s+$/, "") + "\n\n" + template;
+  }
+  if (isPageInput && (key === 'about-page' || key === 'links-page')) {
+    isPageInput.checked = true;
+    updateSaveBtn();
+  }
+  contentInput.focus();
+  saveDraft();
+}
+
 document.querySelectorAll('.md-toolbar button[data-md]').forEach((btn) => {
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     insertMd(btn.getAttribute('data-md'));
   });
 });
+
+if (applyTemplateBtn) {
+  applyTemplateBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    applyTemplateToEditor();
+  });
+}
 
 // ── Fullscreen editor ──
 const fsToggle = document.getElementById('fullscreen-toggle');
@@ -4215,7 +4568,10 @@ if (importBtn && importFile) {
   });
 }
     </script>
-  `
+  `,
+    siteConfig.colorTheme || 'default',
+    "",
+    siteConfig.faviconUrl || DEFAULT_FAVICON_URL
   );
 }
 
@@ -4255,10 +4611,18 @@ function renderThemeControlDock(mode = "front") {
   `;
 }
 
-function renderLayout(title, body, colorTheme = 'default', customCss = "") {
+function renderLayout(
+  title,
+  body,
+  colorTheme = 'default',
+  customCss = "",
+  faviconUrl = DEFAULT_FAVICON_URL
+) {
   const safeCustomCss = customCss
     ? `\n/* user custom css */\n${escapeStyleTagContent(customCss)}\n`
     : "";
+  const normalizedFaviconUrl = sanitizeFaviconUrl(faviconUrl || DEFAULT_FAVICON_URL);
+  const faviconMime = inferFaviconMimeType(normalizedFaviconUrl);
   return `<!doctype html>
 <html lang="zh-Hant">
   <head>
@@ -4267,6 +4631,7 @@ function renderLayout(title, body, colorTheme = 'default', customCss = "") {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="icon" href="${escapeHtml(normalizedFaviconUrl)}" type="${escapeHtml(faviconMime)}" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
     <title>${escapeHtml(title)}</title>
     <style>
@@ -4423,6 +4788,9 @@ button:active,.link-button:active{transform:translateY(0)}
 .md-toolbar button{min-height:36px;min-width:36px;padding:.3rem .5rem;font-family:var(--font-mono);font-size:.78rem;background:transparent;color:var(--muted);border:1px solid transparent}
 .md-toolbar button:hover{background:var(--accent-glow);border-color:var(--line);color:var(--ink);transform:none}
 .fullscreen-btn{background:transparent!important;color:var(--muted)!important;border:1px solid var(--line)!important;font-family:var(--font-mono)!important;font-size:.78rem!important;min-height:36px}
+.template-row{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center}
+.template-row select{flex:1;min-width:220px;border:1px solid var(--line);background:rgba(255,255,255,.65);padding:.58rem .7rem;border-radius:8px;color:var(--ink);font-family:var(--font-mono);font-size:.86rem}
+@media(prefers-color-scheme:dark){.template-row select{background:rgba(255,255,255,.05)}}
 .row-actions{display:flex;flex-wrap:wrap;gap:.5rem}
 .inline-check{display:inline-flex;align-items:center;gap:.5rem;margin:.4rem 0}
 .inline-check input[type="checkbox"]{width:18px;height:18px;accent-color:var(--accent)}
@@ -4591,6 +4959,23 @@ function escapeStyleTagContent(value) {
   return String(value || "")
     .replace(/\u0000/g, "")
     .replace(/<\/style/gi, "<\\/style");
+}
+
+function inferFaviconMimeType(url) {
+  const normalized = String(url || "").toLowerCase();
+  if (normalized.endsWith(".png")) {
+    return "image/png";
+  }
+  if (normalized.endsWith(".svg")) {
+    return "image/svg+xml";
+  }
+  if (normalized.endsWith(".ico")) {
+    return "image/x-icon";
+  }
+  if (normalized.endsWith(".webp")) {
+    return "image/webp";
+  }
+  return "image/jpeg";
 }
 
 function toScriptJson(value) {
