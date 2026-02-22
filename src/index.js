@@ -3590,6 +3590,7 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
         posts: [],
         comments: [],
         postFilter: '',
+        keepEditorSelection: false,
         siteConfig: initialConfig,
       };
 
@@ -3770,11 +3771,11 @@ function tryRestoreDraft(slug) {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) {
-      return;
+      return false;
     }
     const draft = JSON.parse(raw);
     if (!draft || !draft.content) {
-      return;
+      return false;
     }
 
     if (!contentInput.value.trim()) {
@@ -3786,9 +3787,12 @@ function tryRestoreDraft(slug) {
       if (isPageInput) isPageInput.checked = Boolean(draft.isPage);
       if (typeof updateSaveBtn === 'function') updateSaveBtn();
       syncPreview();
+      return true;
     }
+    return false;
   } catch {
     // ignore malformed drafts
+    return false;
   }
 }
 
@@ -3801,8 +3805,10 @@ function syncPreview() {
   }
 }
 
-function resetEditor() {
+function resetEditor(options = {}) {
+  const { restoreDraft = true, keepEditorSelection = false } = options;
   state.currentSlug = '';
+  state.keepEditorSelection = keepEditorSelection;
   titleInput.value = '';
   postSlugInput.value = '';
   descriptionInput.value = '';
@@ -3815,9 +3821,12 @@ function resetEditor() {
   renderCommentAdminList();
   setCommentAdminStatus('');
   if (deletePostBtn) deletePostBtn.disabled = true;
-  setStatus('New post');
+  let restored = false;
+  if (restoreDraft) {
+    restored = tryRestoreDraft('');
+  }
+  setStatus(restored ? '已恢復未發佈草稿' : 'New post');
   markBaseline();
-  tryRestoreDraft('');
 }
 
 function renderPostList() {
@@ -3956,7 +3965,7 @@ async function refreshPosts() {
     if (deletePostBtn) deletePostBtn.disabled = true;
   }
   renderPostList();
-  if (!state.currentSlug && state.posts.length) {
+  if (!state.currentSlug && state.posts.length && !state.keepEditorSelection) {
     loadPost(state.posts[0].postSlug).catch((error) => {
       setStatus(error.message || 'Failed to load first post', true);
     });
@@ -3983,6 +3992,7 @@ async function loadPost(slug) {
       return;
     }
     const post = payload.post;
+    state.keepEditorSelection = false;
     state.currentSlug = post.postSlug;
     titleInput.value = post.title || '';
     postSlugInput.value = post.postSlug || '';
@@ -4175,7 +4185,7 @@ document.getElementById('new-post').addEventListener('click', () => {
   if (hasUnsavedChanges() && !confirm('目前有未儲存內容，確定建立新文章？')) {
     return;
   }
-  resetEditor();
+  resetEditor({ restoreDraft: false, keepEditorSelection: true });
 });
 document.getElementById('save').addEventListener('click', savePost);
 document.getElementById('save-settings').addEventListener('click', saveSiteSettings);
@@ -4329,7 +4339,7 @@ window.addEventListener('beforeunload', (event) => {
 });
 
 applySettingsToForm(initialConfig);
-resetEditor();
+resetEditor({ restoreDraft: true, keepEditorSelection: false });
 refreshSettings().catch((error) => {
   setSettingsStatus(error.message || 'Failed to load site settings', true);
 });
