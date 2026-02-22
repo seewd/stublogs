@@ -442,6 +442,7 @@ async function handleApi(request, env, ctx, context) {
             heroSubtitle: "",
             colorTheme: "default",
             footerNote: "",
+            customCss: "",
             headerLinks: [],
             hideCommunitySites: false,
             hideCampusFeed: false,
@@ -588,6 +589,9 @@ async function handleApi(request, env, ctx, context) {
     const footerNote = sanitizeDescription(
       body.footerNote ?? currentConfig.footerNote ?? ""
     );
+    const customCss = sanitizeCustomCss(
+      body.customCss ?? currentConfig.customCss ?? ""
+    );
     const headerLinks = Array.isArray(body.headerLinks)
       ? sanitizeHeaderLinks(body.headerLinks)
       : sanitizeHeaderLinks(currentConfig.headerLinks || []);
@@ -610,6 +614,7 @@ async function handleApi(request, env, ctx, context) {
         heroSubtitle,
         colorTheme,
         footerNote,
+        customCss,
         headerLinks,
         hideCommunitySites,
         hideCampusFeed,
@@ -1956,6 +1961,7 @@ function defaultSiteConfigFromSite(site) {
       heroSubtitle: "",
       colorTheme: "default",
       footerNote: "",
+      customCss: "",
       headerLinks: [],
       hideCommunitySites: false,
       hideCampusFeed: false,
@@ -2039,6 +2045,7 @@ function normalizeSiteConfig(rawConfig, site) {
       heroSubtitle: "",
       colorTheme: "default",
       footerNote: "",
+      customCss: "",
       headerLinks: [],
       hideCommunitySites: false,
       hideCampusFeed: false,
@@ -2062,6 +2069,7 @@ function normalizeSiteConfig(rawConfig, site) {
     heroSubtitle: sanitizeDescription(merged.heroSubtitle || ""),
     colorTheme: sanitizeColorTheme(merged.colorTheme || base.colorTheme || "default"),
     footerNote: normalizedFooterNote === LEGACY_FOOTER_NOTE ? "" : normalizedFooterNote,
+    customCss: sanitizeCustomCss(merged.customCss || base.customCss || ""),
     headerLinks: sanitizeHeaderLinks(Array.isArray(merged.headerLinks) ? merged.headerLinks : []),
     hideCommunitySites: Boolean(merged.hideCommunitySites),
     hideCampusFeed: Boolean(merged.hideCampusFeed),
@@ -2081,6 +2089,7 @@ function defaultSiteConfigFromSiteBase(site) {
     heroSubtitle: "",
     colorTheme: "default",
     footerNote: "",
+    customCss: "",
     headerLinks: [],
     hideCommunitySites: false,
     hideCampusFeed: false,
@@ -2536,6 +2545,14 @@ function sanitizeDescription(value) {
     .slice(0, 240);
 }
 
+function sanitizeCustomCss(value) {
+  return String(value || "")
+    .replace(/\u0000/g, "")
+    .replace(/<\/style/gi, "")
+    .trim()
+    .slice(0, 8000);
+}
+
 function sanitizeCommentAuthor(value) {
   return sanitizeName(value)
     .replace(/\s+/g, " ")
@@ -2590,7 +2607,7 @@ function html(body, status = 200) {
     status,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com https://cdn.jsdelivr.net data:; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
       "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -2912,7 +2929,7 @@ function renderSiteHomePage(
       ? `<footer class="site-footer muted">${escapeHtml(siteConfig.footerNote)}</footer>`
       : ''}
     </section>
-  `, siteConfig.colorTheme || 'default'
+  `, siteConfig.colorTheme || 'default', siteConfig.customCss || ""
   );
 }
 
@@ -3152,7 +3169,8 @@ function renderPostPage(site, siteConfig, post, articleHtml, communitySites, bas
       })();
     </script>
   `,
-    siteConfig.colorTheme || "default"
+    siteConfig.colorTheme || "default",
+    siteConfig.customCss || ""
   );
 }
 
@@ -3259,14 +3277,23 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
             </label>
             <label>Content</label>
             <div class="md-toolbar">
+              <button type="button" data-md="h1" title="Heading 1">H1</button>
               <button type="button" data-md="bold" title="Bold">B</button>
               <button type="button" data-md="italic" title="Italic">I</button>
               <button type="button" data-md="code" title="Code">&#96;</button>
-              <button type="button" data-md="heading" title="Heading">H</button>
+              <button type="button" data-md="heading" title="Heading">H2</button>
+              <button type="button" data-md="h3" title="Heading 3">H3</button>
               <button type="button" data-md="link" title="Link">🔗</button>
+              <button type="button" data-md="image" title="Image">🖼</button>
               <button type="button" data-md="list" title="List">•</button>
+              <button type="button" data-md="task" title="Task list">☑︎</button>
               <button type="button" data-md="ordered" title="Ordered list">1.</button>
               <button type="button" data-md="quote" title="Quote">❝</button>
+              <button type="button" data-md="table" title="Table">▦</button>
+              <button type="button" data-md="math-inline" title="Inline KaTeX">∑</button>
+              <button type="button" data-md="math-block" title="Block KaTeX">$$</button>
+              <button type="button" data-md="br" title="Line break">↵</button>
+              <button type="button" data-md="codeblock" title="Code block">{ }</button>
               <button type="button" data-md="hr" title="Divider">—</button>
               <button type="button" id="fullscreen-toggle" class="fullscreen-btn">⛶ 全屏</button>
             </div>
@@ -3311,6 +3338,9 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
             </select>
             <label>頁尾文字</label>
             <input id="siteFooterNote" maxlength="240" />
+            <label>自訂 CSS（前台）</label>
+            <textarea id="siteCustomCss" class="small-textarea" maxlength="8000" placeholder=".article-body h2 { letter-spacing: 0.02em; }"></textarea>
+            <p class="muted">僅作用於你的前台頁面（首頁與文章頁）。</p>
             <label>外部連結（每行：標題|https://url）</label>
             <textarea id="siteHeaderLinks" class="small-textarea" placeholder="作品集|https://example.com"></textarea>
             <label class="inline-check">
@@ -3358,6 +3388,7 @@ export function renderAdminPage(site, siteConfig, authed, baseDomain) {
       const siteHeroSubtitleInput = document.getElementById('siteHeroSubtitle');
       const siteColorThemeInput = document.getElementById('siteColorTheme');
       const siteFooterNoteInput = document.getElementById('siteFooterNote');
+      const siteCustomCssInput = document.getElementById('siteCustomCss');
       const siteHeaderLinksInput = document.getElementById('siteHeaderLinks');
       const siteHideCommunitySitesInput = document.getElementById('siteHideCommunitySites');
       const siteHideCampusFeedInput = document.getElementById('siteHideCampusFeed');
@@ -3453,6 +3484,7 @@ function applySettingsToForm(config) {
   siteHeroSubtitleInput.value = safe.heroSubtitle || '';
   if (siteColorThemeInput) siteColorThemeInput.value = safe.colorTheme || 'default';
   siteFooterNoteInput.value = safe.footerNote || '';
+  if (siteCustomCssInput) siteCustomCssInput.value = safe.customCss || '';
   siteHeaderLinksInput.value = renderHeaderLinksValue(safe.headerLinks || []);
   if (siteHideCommunitySitesInput) siteHideCommunitySitesInput.checked = !!safe.hideCommunitySites;
   if (siteHideCampusFeedInput) siteHideCampusFeedInput.checked = !!safe.hideCampusFeed;
@@ -3814,6 +3846,7 @@ async function saveSiteSettings() {
         heroSubtitle: siteHeroSubtitleInput.value.trim(),
         colorTheme: siteColorThemeInput.value,
         footerNote: siteFooterNoteInput.value.trim(),
+        customCss: siteCustomCssInput ? siteCustomCssInput.value : '',
         headerLinks: parseHeaderLinks(siteHeaderLinksInput.value),
         hideCommunitySites: siteHideCommunitySitesInput.checked,
         hideCampusFeed: siteHideCampusFeedInput.checked,
@@ -4017,32 +4050,83 @@ function insertMd(type) {
   const start = ta.selectionStart;
   const end = ta.selectionEnd;
   const sel = ta.value.substring(start, end);
-  let before = '', after = '';
+  const tick = String.fromCharCode(96);
+  const fence = tick + tick + tick;
+  const lines = (sel || '').split('\n');
   let replacement = '';
+
+  const wrapSelection = (before, after, fallback = '') =>
+    before + (sel || fallback) + after;
+  const mapLines = (transform, fallback = '') =>
+    (sel || fallback)
+      .split('\n')
+      .map((line, index) => transform(line, index))
+      .join('\n');
+
   switch (type) {
-    case 'bold': before = '**'; after = '**'; break;
-    case 'italic': before = '*'; after = '*'; break;
-    case 'code': before = sel.includes('\n') ? '\n' + String.fromCharCode(96,96,96) + '\n' : String.fromCharCode(96); after = sel.includes('\n') ? '\n' + String.fromCharCode(96,96,96) + '\n' : String.fromCharCode(96); break;
-    case 'heading': before = '## '; break;
-    case 'link': before = '['; after = '](https://)'; break;
-    case 'list': before = '- '; break;
-    case 'ordered': before = '1. '; break;
-    case 'quote': before = '> '; break;
-    case 'hr': replacement = '\n---\n'; break;
+    case 'h1':
+      replacement = wrapSelection('# ', '', '標題');
+      break;
+    case 'heading':
+      replacement = wrapSelection('## ', '', '標題');
+      break;
+    case 'h3':
+      replacement = wrapSelection('### ', '', '標題');
+      break;
+    case 'bold':
+      replacement = wrapSelection('**', '**', '文字');
+      break;
+    case 'italic':
+      replacement = wrapSelection('*', '*', '文字');
+      break;
+    case 'code':
+      replacement = sel.includes('\n')
+        ? '\n' + fence + '\n' + (sel || 'code') + '\n' + fence + '\n'
+        : tick + (sel || 'code') + tick;
+      break;
+    case 'codeblock':
+      replacement = '\n' + fence + '\n' + (sel || 'code') + '\n' + fence + '\n';
+      break;
+    case 'link':
+      replacement = '[' + (sel || '連結文字') + '](https://)';
+      break;
+    case 'image':
+      replacement = '![' + (sel || '圖片描述') + '](https://)';
+      break;
+    case 'list':
+      replacement = mapLines((line) => '- ' + (line || '列表項'), '列表項');
+      break;
+    case 'task':
+      replacement = mapLines((line) => '- [ ] ' + (line || '待辦事項'), '待辦事項');
+      break;
+    case 'ordered':
+      replacement = mapLines((line, index) => (index + 1) + '. ' + (line || '列表項'), '列表項');
+      break;
+    case 'quote':
+      replacement = mapLines((line) => '> ' + (line || '引用文字'), '引用文字');
+      break;
+    case 'table':
+      replacement = '\n| 欄位1 | 欄位2 |\n| --- | --- |\n| 內容1 | 內容2 |\n';
+      break;
+    case 'math-inline':
+      replacement = '$' + (sel || 'x^2+y^2=z^2') + '$';
+      break;
+    case 'math-block':
+      replacement = '\n$$\n' + (sel || '\\int_0^1 x^2 \\, dx') + '\n$$\n';
+      break;
+    case 'br':
+      replacement = sel
+        ? lines.join('  \n')
+        : '第一行  \n第二行';
+      break;
+    case 'hr':
+      replacement = '\n---\n';
+      break;
+    default:
+      replacement = sel;
+      break;
   }
-  if (!replacement) {
-    const placeholders = {
-      bold: '文字',
-      italic: '文字',
-      code: 'code',
-      heading: '標題',
-      link: '連結文字',
-      list: '列表項',
-      ordered: '列表項',
-      quote: '引用文字',
-    };
-    replacement = before + (sel || placeholders[type] || '') + after;
-  }
+
   ta.setRangeText(replacement, start, end, 'end');
   ta.focus();
   saveDraft();
@@ -4171,7 +4255,10 @@ function renderThemeControlDock(mode = "front") {
   `;
 }
 
-function renderLayout(title, body, colorTheme = 'default') {
+function renderLayout(title, body, colorTheme = 'default', customCss = "") {
+  const safeCustomCss = customCss
+    ? `\n/* user custom css */\n${escapeStyleTagContent(customCss)}\n`
+    : "";
   return `<!doctype html>
 <html lang="zh-Hant">
   <head>
@@ -4180,6 +4267,7 @@ function renderLayout(title, body, colorTheme = 'default') {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
     <title>${escapeHtml(title)}</title>
     <style>
 :root {
@@ -4290,6 +4378,9 @@ button:active,.link-button:active{transform:translateY(0)}
 @media(prefers-color-scheme:dark){.article-body pre{background:rgba(255,255,255,.05);border:1px solid var(--line)}}
 .article-body code{background:var(--code-bg);padding:.12rem .35rem;border-radius:4px;font-size:.88em;font-family:var(--font-mono)}
 .article-body pre code{background:none;padding:0;font-size:inherit}
+.article-body .katex-display{overflow-x:auto;overflow-y:hidden;padding:.2rem 0}
+.article-body .katex{max-width:100%}
+.article-body .katex-display > .katex{max-width:100%}
 .read-time{font-family:var(--font-mono);font-size:.78rem;color:var(--muted);margin-left:.5rem}
 .comment-panel{margin-top:1rem}
 .comment-list{list-style:none;margin:1rem 0 0;padding:0;display:grid;gap:.75rem}
@@ -4372,12 +4463,15 @@ code{font-family:var(--font-mono)}
   .admin-tabs{overflow:auto;scrollbar-width:thin}
   .post-item-btn{font-size:.82rem}
 }
+${safeCustomCss}
     </style>
   </head>
   <body class="theme-${escapeHtml(colorTheme)}" data-default-theme="${escapeHtml(colorTheme)}">
     <main>
       ${body}
     </main>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
     <script>
       (function () {
         const availableThemes = ['default', 'ocean', 'forest', 'violet', 'sunset', 'mint', 'graphite'];
@@ -4454,6 +4548,30 @@ code{font-family:var(--font-mono)}
             applyContrast(contrastSelect.value, true);
           });
         }
+
+        function applyMath(retries) {
+          if (typeof window.renderMathInElement !== 'function') {
+            if (retries > 0) {
+              setTimeout(function() {
+                applyMath(retries - 1);
+              }, 120);
+            }
+            return;
+          }
+          window.renderMathInElement(document.body, {
+            delimiters: [
+              { left: '$$', right: '$$', display: true },
+              { left: '\\\\[', right: '\\\\]', display: true },
+              { left: '$', right: '$', display: false },
+              { left: '\\\\(', right: '\\\\)', display: false }
+            ],
+            ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+            throwOnError: false,
+            strict: 'ignore'
+          });
+        }
+
+        applyMath(40);
       })();
     </script>
   </body>
@@ -4467,6 +4585,12 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeStyleTagContent(value) {
+  return String(value || "")
+    .replace(/\u0000/g, "")
+    .replace(/<\/style/gi, "<\\/style");
 }
 
 function toScriptJson(value) {
@@ -4503,12 +4627,13 @@ export function renderMarkdown(source) {
   let bulletItems = [];
   let orderedItems = [];
   let codeBlock = null;
+  let mathBlock = null;
 
   const flushParagraph = () => {
     if (!paragraph.length) {
       return;
     }
-    const text = paragraph.join(" ");
+    const text = paragraph.join("\n");
     blocks.push(`<p>${renderInline(text)}</p>`);
     paragraph = [];
   };
@@ -4537,11 +4662,25 @@ export function renderMarkdown(source) {
     codeBlock = null;
   };
 
+  const flushMathBlock = () => {
+    if (!mathBlock) {
+      return;
+    }
+    const formula = mathBlock.join("\n").trim();
+    if (formula) {
+      blocks.push(`<div class="math-block">\\[${escapeHtml(formula)}\\]</div>`);
+    }
+    mathBlock = null;
+  };
+
   for (const line of lines) {
-    if (line.trim().startsWith("```")) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
       flushParagraph();
       flushBulletList();
       flushOrderedList();
+      flushMathBlock();
 
       if (codeBlock) {
         flushCode();
@@ -4557,10 +4696,37 @@ export function renderMarkdown(source) {
       continue;
     }
 
-    if (!line.trim()) {
+    if (trimmed === "$$") {
       flushParagraph();
       flushBulletList();
       flushOrderedList();
+
+      if (mathBlock) {
+        flushMathBlock();
+      } else {
+        mathBlock = [];
+      }
+      continue;
+    }
+
+    if (mathBlock) {
+      mathBlock.push(line);
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      flushBulletList();
+      flushOrderedList();
+      continue;
+    }
+
+    const singleLineMath = line.match(/^\s*\$\$(.+)\$\$\s*$/);
+    if (singleLineMath) {
+      flushParagraph();
+      flushBulletList();
+      flushOrderedList();
+      blocks.push(`<div class="math-block">\\[${escapeHtml(singleLineMath[1].trim())}\\]</div>`);
       continue;
     }
 
@@ -4607,19 +4773,67 @@ export function renderMarkdown(source) {
       continue;
     }
 
-    paragraph.push(line.trim());
+    paragraph.push(line);
   }
 
   flushParagraph();
   flushBulletList();
   flushOrderedList();
   flushCode();
+  flushMathBlock();
 
   return blocks.join("\n");
 }
 
 function renderInline(value) {
   let text = escapeHtml(value);
+
+  const mathTokens = [];
+  const tokenPrefix = "@@MATH_TOKEN_";
+
+  const pushMathToken = (segment) => {
+    const key = `${tokenPrefix}${mathTokens.length}@@`;
+    mathTokens.push(segment);
+    return key;
+  };
+
+  const isEscaped = (input, index) => {
+    let slashCount = 0;
+    for (let cursor = index - 1; cursor >= 0 && input[cursor] === "\\"; cursor -= 1) {
+      slashCount += 1;
+    }
+    return slashCount % 2 === 1;
+  };
+
+  // Protect math delimiters from inline markdown transforms.
+  text = text.replace(/\\\[[\s\S]+?\\\]/g, (segment) => pushMathToken(segment));
+  text = text.replace(/\\\([\s\S]+?\\\)/g, (segment) => pushMathToken(segment));
+  text = text.replace(/\$\$[\s\S]+?\$\$/g, (segment) => pushMathToken(segment));
+
+  let scanned = "";
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== "$" || isEscaped(text, index) || text[index + 1] === "$") {
+      scanned += text[index];
+      continue;
+    }
+
+    let end = index + 1;
+    while (end < text.length) {
+      if (text[end] === "$" && !isEscaped(text, end)) {
+        break;
+      }
+      end += 1;
+    }
+
+    if (end >= text.length || end === index + 1) {
+      scanned += text[index];
+      continue;
+    }
+
+    scanned += pushMathToken(text.slice(index, end + 1));
+    index = end;
+  }
+  text = scanned;
 
   text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
   text = text.replace(/~~([^~]+)~~/g, "<del>$1</del>");
@@ -4635,6 +4849,13 @@ function renderInline(value) {
     const safeUrl = escapeHtml(rawUrl);
     return `<a href="${safeUrl}" target="_blank" rel="noreferrer noopener">${label}</a>`;
   });
+
+  for (let index = 0; index < mathTokens.length; index += 1) {
+    const key = `${tokenPrefix}${index}@@`;
+    text = text.split(key).join(mathTokens[index]);
+  }
+
+  text = text.replace(/\n/g, "<br />");
 
   return text;
 }

@@ -30,3 +30,17 @@ test("renderMarkdown escapes html and supports inline syntax", () => {
   assert.match(html, /<code>&lt;script&gt;<\/code>/);
 });
 
+test("renderMarkdown keeps line breaks and preserves math delimiters", () => {
+  const html = renderMarkdown(`第一行
+第二行
+
+行內公式 $a^2+b^2=c^2$
+
+$$
+\\int_0^1 x^2 \\, dx
+$$`);
+
+  assert.match(html, /第一行<br \/>第二行/);
+  assert.match(html, /\$a\^2\+b\^2=c\^2\$/);
+  assert.match(html, /<div class="math-block">\\\[/);
+});
