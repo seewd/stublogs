@@ -1,0 +1,18 @@
+{
+  "slug": "alice",
+  "displayName": "a",
+  "description": "",
+  "heroTitle": "",
+  "heroSubtitle": "",
+  "colorTheme": "default",
+  "footerNote": "",
+  "customCss": "",
+  "faviconUrl": "https://img.bdfz.net/20250503004.webp",
+  "headerLinks": [],
+  "hideCommunitySites": false,
+  "hideCampusFeed": false,
+  "commentsEnabled": true,
+  "createdAt": "2026-02-22T04:27:28.960Z",
+  "updatedAt": "2026-02-22T04:27:28.960Z",
+  "exportVersion": 3
+}
