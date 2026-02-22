@@ -1,0 +1,18 @@
+{
+  "slug": "bugtest",
+  "displayName": "Bug复现测试",
+  "description": "密码: bugbugbug",
+  "heroTitle": "",
+  "heroSubtitle": "",
+  "colorTheme": "default",
+  "footerNote": "",
+  "customCss": "",
+  "faviconUrl": "https://img.bdfz.net/20250503004.webp",
+  "headerLinks": [],
+  "hideCommunitySites": false,
+  "hideCampusFeed": false,
+  "commentsEnabled": true,
+  "createdAt": "2026-02-22T02:27:59.274Z",
+  "updatedAt": "2026-02-22T02:27:59.274Z",
+  "exportVersion": 3
+}
